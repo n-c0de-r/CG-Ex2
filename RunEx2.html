@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CG-Ex2: Audio Visualizer</title>
+</head>
+
+<body>
+  <h3>n-c0de-r</h3>
+  <div id="spot">
+    <img id="spimg" src="" alt="">
+    <div style="width: 310px; display: inline-block;">
+      <h4 id="artistname"></h4>
+      <h4 id="trackname"></h4>
+      <audio loop crossorigin="anonymous" id="audio" controls
+        src=""></audio>
+    </div>
+  </div>
+  <script src="./webaudiospotify.js"></script>
+
+  <canvas id="ds_draw_here"></canvas>
+
+  <script id="ds-vertex" type="notjs">
+    attribute float x_pos;
+    attribute float y_pos;
+    uniform   float u_time;
+    
+    varying float r;
+    varying float g;
+    varying float b;
+
+    void main() {
+      // Set point size to 8, making it visible
+      gl_PointSize = 8.0;
+
+      // Color circle
+      r = (sin(x_pos)-cos(x_pos)) * u_time;
+      g = (cos(x_pos)+sin(x_pos)) * u_time;
+      b = -sin(x_pos)* u_time;
+
+      gl_Position = vec4(sin(x_pos)*y_pos, cos(x_pos)*y_pos, 0, 1);
+    }
+  </script>  
+
+  <script id="ds-fragment" type="notjs">
+    precision mediump float;
+
+    varying float r;
+    varying float g;
+    varying float b;
+
+    void main() {
+      gl_FragColor = vec4(r, g, b, 1.0);
+    }
+  </script>  
+      
+  <script>
+    // Initialize variables to be avaliable globally for both functions
+    var canvas_ds, gl, program, positionAttributeLocation, positionBufferX, positionBufferY;
+
+    init();
+    render();
+
+    // Eigentlich war alles copy paste aus den Folien 
+
+    function init(){
+      //Put your one time initialisation javascript here
+
+      // Get canvas element & set its dimensions
+      canvas_ds = document.getElementById('ds_draw_here');
+      // Find the smallest side, depending on device
+      let smallestSide = Math.min(window.innerWidth/2, window.innerHeight/2)
+      // Create a quadratic viewport
+      canvas_ds.width = smallestSide;
+      canvas_ds.height = smallestSide;
+
+      // get canvas context
+      gl = canvas_ds.getContext('webgl');
+
+      // Set shader source codes
+      const vertSource = document.getElementById("ds-vertex").innerText;
+      const fragSource = document.getElementById("ds-fragment").innerText;
+
+      // Function to create shaders by parameters avoids duplicate codes
+      function createShader(gl, type, source) {
+        var shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          return shader;
+        }
+        console.error(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+      }
+
+      // Function to link shaders to programms, as above via parameters
+      function createPrograms(gl, vertexShader, fragmentShader) {
+        program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          return program;
+        }
+        console.error(gl.getProgramInfoLog(program));
+        gl.deleteProgram(program);
+      }
+
+      // Actually create shaders now!
+      var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertSource);
+      var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragSource);
+
+      // Actually link programms now
+      program = createPrograms(gl, vertexShader, fragmentShader);
+      
+      // Create a buffer for x coordinates and put values in it
+      positionBufferX = gl.createBuffer();
+
+      // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferX);
+      
+      // Generate normalized x values
+      let x_positions = [];
+
+      for (let i=0; i <= canvas_ds.width; i++) {
+        x_positions.push(((i-canvas_ds.width/2)/(canvas_ds.width/2)) * 2 * Math.PI-Math.PI);
+      }
+
+      // Send array data to buffer for drawing
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(x_positions), gl.STATIC_DRAW);
+
+      // Pass array numbers of x values in vertex shader attribute 'x_pos' ONCE
+      positionAttributeLocation = gl.getAttribLocation(program, "x_pos");
+
+      // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+      // Takes 5 paramters, which we set as variables
+      var size = 1;          // 1 components per iteration, each point has 1 value
+      var type = gl.FLOAT;   // the data type is 32bit floats
+      var normalize = false; // don't normalize the data
+      var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+      var offset = 0;        // start at the beginning of the buffer
+
+      gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+
+      // Turn on the attribute for x_pos which is the angle
+      gl.enableVertexAttribArray(positionAttributeLocation);
+    }
+
+    function render(time){
+      //Put your repeatedly drawing code javascript here
+
+      // Pass uniform varaible to the vertex shader
+      var utime = gl.getUniformLocation(program, "u_time");
+
+      // Pass uniform varaible to the fragment shader
+      gl.uniform1f (utime, time/100);
+
+      // Get audio data
+      let y_positions = [];
+      let fft = getData(analyser, 1024, "FFT");
+      let minFFT = 0;
+
+      // Find highest value
+      for (let i=0; i<=canvas_ds.width; i++) {
+        minFFT = Math.min(minFFT, fft[i]);
+      }
+
+      // Normalize all values in relation to highest value
+      for (let i=0; i<=canvas_ds.width; i++) {
+        y_positions.push(fft[i]/minFFT);
+      }
+
+      // Clear canvas on new frame
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      // Tell render to use our program (pair of shaders) & which!
+      gl.useProgram(program);
+
+      // Same for y coordinates
+      positionBufferY = gl.createBuffer();
+
+      // Bind the position buffer again if there was changes.
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferY);
+
+      // Send array data to buffer for drawing
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(y_positions), gl.STATIC_DRAW);
+      
+      // Pass array numbers of y values in vertex shader attribute 'y_pos' EVERY FRAME
+      positionAttributeLocation = gl.getAttribLocation(program, "y_pos");
+
+      // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+      // Takes 5 paramters, which we set as variables
+      var size = 1;          // 1 components per iteration, each point has 1 value
+      var type = gl.FLOAT;   // the data type is 32bit floats
+      var normalize = false; // don't normalize the data
+      var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+      var offset = 0;        // start at the beginning of the buffer
+
+      gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+
+      // Turn on the attribute for y_pos as intensity
+      gl.enableVertexAttribArray(positionAttributeLocation);
+
+      // draw
+      var primitiveType = gl.TRIANGLE_FAN;
+      var skip = 0; // How many from given vertices to skip
+      var count = canvas_ds.width; // how many from given vertices to draw
+      gl.drawArrays(primitiveType, skip, count);
+
+      window.requestAnimationFrame(render); //render forever
+    }
+  </script>
+</body>
+
+</html>
