@@ -23,7 +23,7 @@ var sptrack={};
 async function getTrack(name) {
     if (!name) name = trackname.value;
     if (name.length > 0) {
-        let URL = "https://raw.githubusercontent.com/n-c0de-r/CG2-Audio-Visualizer/main/Ex2-Track.txt";
+        let URL = "https://raw.githubusercontent.com/n-c0de-r/CG-Ex2/main/Ex2-Track.txt";
         let resp = await fetch(URL, {});
         var newtrack = await resp.json();
         if (!newtrack.error) {
